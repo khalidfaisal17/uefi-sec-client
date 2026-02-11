@@ -15,4 +15,10 @@ Integration:
 - Added manual `Makefile` for standalone/ADB compilation.
 - Configured dependencies for `QseeComApi` and `dmabufheap`.
 
+Sync & Build Instructions:
+- Sync code in `QLI1.x` workspace `<workspace-path>/layers/meta-qti-security-prop/recipes-security/`
+- `cd <workspace-path>` 
+- `source setup-environment` (Choose any target)
+- `bitbake uefi-sec-client`
+
 Signed-off-by: Khalid Faisal Ansari <afaisal@qti.qualcomm.com>
