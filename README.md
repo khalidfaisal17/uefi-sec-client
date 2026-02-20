@@ -1,5 +1,5 @@
 # uefi-sec-client
-feat(security): implement uefi_sec_client for Secure Boot provisioning
+feature(security): implement uefi_sec_client for Secure Boot provisioning
 
 Introduces `uefi_sec_client`, a command-line utility for the Qualcomm Linux (QLI) environment to manage UEFI Secure Boot keys via the uefisecapp Trusted Application.
 
@@ -47,9 +47,8 @@ Ensure you are in the QLI build environment with access to `QSEEComAPI.h`.
 
 | Flag | Long Option | Description |
 | :--- | :--- | :--- |
-| `-c` | `--checkStatus` | Displays current Secure Boot state and key presence. |
+| `-c` | `--checkStatus` | Displays the key presence. |
 | `-e` | `--enroll` | Enrolls or Updates a key. Replaces existing data. |
-| `-a` | `--append` | Appends data to an existing key (e.g., adding a certificate to db). |
 | `-v` | `--var` | Specifies the variable name (`PK`, `KEK`, `db`, `dbx`). |
 | `-f` | `--file` | Path to the signed authentication file (`.auth`) or ESL file (`.esl`). |
 
@@ -82,31 +81,9 @@ uefi_sec_client -e -v db -f /data/db.auth
 uefi_sec_client -e -v KEK -f /data/KEK.auth
 ```
 
-### 3. Disable Secure Boot (Clear PK)
-To disable Secure Boot, you must clear the Platform Key (PK). Since the "Delete" feature has been deprecated, use the **Enroll** command with a specific "Clear PK" authentication file (signed with the current PK, containing empty data).
-
-```bash
-uefi_sec_client -e -v PK -f /data/PK_clear.auth
-```
-*Note: Once PK is cleared, the system enters Setup Mode.*
-
-### 4. Append a Certificate (db/dbx)
-Used to add a new allowed or forbidden signature without overwriting the existing list.
-*Supported only for `db`, `dbx`, and `KEK`.*
-
-**Example: Add a new certificate to db**
-```bash
-uefi_sec_client -a -v db -f /data/new_cert.esl
-```
-
-**Example: Revoke a certificate (add to dbx)**
-```bash
-uefi_sec_client -a -v dbx -f /data/revocation.esl
-```
-
 ## Constraints & Error Handling
 *   **PK Operations**: 
-    *   **Append (`-a`)** is **NOT ALLOWED** for PK.
+    *   **Enroll (`-e`)** is **NOT ALLOWED** for PK.
     *   **Update (`-e`)** is allowed (for Rotation or Clearing).
 *   **Authentication**: All write operations in User Mode require signed `.auth` files.
 *   **Error 0x1A**: Indicates "Security Violation". This happens if you try to write without a valid signature while Secure Boot is enabled.

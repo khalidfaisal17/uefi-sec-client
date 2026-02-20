@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Qualcomm Technologies, Inc.
+ * Copyright (c) 2024 Qualcomm Technologies, Inc.
  * All Rights Reserved.
  * Confidential and Proprietary - Qualcomm Technologies, Inc.
  */
@@ -34,7 +34,6 @@
 #define EFI_VARIABLE_BOOTSERVICE_ACCESS                    0x00000002
 #define EFI_VARIABLE_RUNTIME_ACCESS                        0x00000004
 #define EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS 0x00000020
-#define EFI_VARIABLE_APPEND_WRITE                          0x00000040
 
 /* Command IDs */
 #define CMD_UEFI_GET_VARIABLE     0x00008000
@@ -149,9 +148,9 @@ int uefi_send_get(const char *name, uint32_t req_data_len, uint32_t *out_status,
     return 0;
 }
 
-int uefi_set_variable(const char *name, const char *file_path, uint32_t extra_attrs) {
+int uefi_set_variable(const char *name, const char *file_path) {
     if (!l_handle) return -1;
-    
+
     uint8_t *buf = NULL;
     long fsize = 0;
 
@@ -184,7 +183,6 @@ int uefi_set_variable(const char *name, const char *file_path, uint32_t extra_at
     /* Standard secure attributes: NV | BS | RT | TIME_AUTH */
     req->Attributes = EFI_VARIABLE_NON_VOLATILE | EFI_VARIABLE_BOOTSERVICE_ACCESS | 
                       EFI_VARIABLE_RUNTIME_ACCESS | EFI_VARIABLE_TIME_BASED_AUTHENTICATED_WRITE_ACCESS;
-    req->Attributes |= extra_attrs;
 
     req->DataOffset = off_data;
     req->DataSize = (uint32_t)fsize;
@@ -211,7 +209,7 @@ int uefi_set_variable(const char *name, const char *file_path, uint32_t extra_at
     int ret = QSEECom_send_modified_cmd(l_handle, 
             l_handle->ion_sbuffer, ALIGN(req->Length, 64), 
             l_handle->ion_sbuffer, MAX_BUFFER_SIZE, &ion_fd_info);
-    
+
     TZ_UEFI_SET_RSP *rsp = (TZ_UEFI_SET_RSP *)l_handle->ion_sbuffer;
     uint32_t status = rsp->Status;
 
@@ -234,7 +232,6 @@ void print_usage(const char *prog) {
     printf("Usage: %s [OPTIONS]\n", prog);
     printf("  -c, --checkStatus           Check Secure Boot status and keys\n");
     printf("  -e, --enroll                Update/Enroll a key (requires -v and -f)\n");
-    printf("  -a, --append                Append to a key (requires -v and -f)\n");
     printf("  -v, --var <name>            Variable Name (PK, KEK, db, dbx)\n");
     printf("  -f, --file <path>           Input .auth/.esl file path\n");
 }
@@ -253,7 +250,6 @@ int main(int argc, char *argv[]) {
     static struct option long_options[] = {
         {"checkStatus", no_argument, 0, 'c'},
         {"enroll",      no_argument, 0, 'e'},
-        {"append",      no_argument, 0, 'a'},
         {"var",         required_argument, 0, 'v'},
         {"file",        required_argument, 0, 'f'},
         {0, 0, 0, 0}
@@ -264,7 +260,6 @@ int main(int argc, char *argv[]) {
         switch (opt) {
             case 'c': mode = 1; break;
             case 'e': mode = 2; break;
-            case 'a': mode = 3; break;
             case 'v': var_name = optarg; break;
             case 'f': file_path = optarg; break;
             default: print_usage(argv[0]); return -1;
@@ -274,17 +269,9 @@ int main(int argc, char *argv[]) {
     if (mode == 0) {
         print_usage(argv[0]);
     } else if (mode == 1) {
-        printf("\n=== System Security State ===\n");
         uint32_t status, size;
-        uint8_t val[8] = {0}; 
-        uefi_send_get("SetupMode", 4, &status, &size, val);
-        printf(" [State] SetupMode    : %s\n", (status==0 && val[0]) ? "1 (Setup - Unlocked)" : "0 (User - Locked)");
 
-        memset(val, 0, 8);
-        uefi_send_get("SecureBoot", 4, &status, &size, val);
-        printf(" [State] SecureBoot   : %s\n", (status==0 && val[0]) ? "ENABLED" : "DISABLED");
-
-        printf("\n=== Key Database ===\n");
+	printf("\n=== Key Database ===\n");
         const char *keys[] = {"PK", "KEK", "db", "dbx"};
         for (int i=0; i<4; i++) {
             uefi_send_get(keys[i], 0, &status, &size, NULL);
@@ -297,7 +284,7 @@ int main(int argc, char *argv[]) {
                 printf("Error 0x%X\n", status);
             }
         }
-    } else if (mode == 2 || mode == 3) {
+    } else if (mode == 2) {
         if (!var_name) {
             printf("[ERROR] -v <varname> is required.\n");
         }
@@ -306,30 +293,24 @@ int main(int argc, char *argv[]) {
         }
         else {
             /* CONSTRAINT 1: Block APPEND on PK */
-            if (strcmp(var_name, "PK") == 0 && mode == 3) {
-                 printf("[ERROR] Append NOT ALLOWED for PK (Platform Key).\n");
+            if (strcmp(var_name, "PK") == 0) {
+                 printf("[ERROR] [SECURITY BLOCK] Modification of 'PK' (Platform Key) is strictly PROHIBITED.\n");
                  QSEECom_shutdown_app(&l_handle);
                  return -1;
             }
 
             /* CONSTRAINT 2: Valid Variable Check */
             if (strcmp(var_name, "db") != 0 &&
-				strcmp(var_name, "dbx") != 0 &&
-				strcmp(var_name, "KEK") != 0 &&
-				strcmp(var_name, "PK") != 0) {
+                strcmp(var_name, "dbx") != 0 &&
+                strcmp(var_name, "KEK") != 0 &&
+                strcmp(var_name, "PK") != 0) {
                 printf("[ERROR] Variable not supported. Use PK, db, dbx, or KEK.\n");
                 QSEECom_shutdown_app(&l_handle);
                 return -1;
             }
 
-            uint32_t attrs = 0;
-            if (mode == 3) {
-                attrs = EFI_VARIABLE_APPEND_WRITE;
-                printf("Mode: APPEND to %s\n", var_name);
-            } else {
-                printf("Mode: ENROLL/UPDATE %s\n", var_name);
-            }
-            uefi_set_variable(var_name, file_path, attrs);
+            printf("Mode: ENROLL/UPDATE %s --> Operation will overwrite the entries\n", var_name);
+            uefi_set_variable(var_name, file_path);
         }
     }
 
